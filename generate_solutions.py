@@ -4,7 +4,6 @@ import jsonlines
 import re
 import time
 
-from datasets import load_dataset
 from typing import List
 from openai import OpenAI
 
@@ -69,9 +68,9 @@ def build_code_opt_prompt(original_code: str) -> str:
     return (
         f"You are an expert python performance engineer.\n\n"
         f"Python version: 3.10, Numpy version 1.26.4\n"
-        f"Task: Optimize the provided for speed while preserving exact behavior and I/O.\n"
+        f"Task: Optimize the provided function for speed while preserving exact behavior and I/O.\n"
         f"- Do not change the function signature expected by the harness.\n"
-        f"- Provide a full replacement for this code.\n"
+        f"- Provide a full replacement for the function.\n"
         f"- Return only the code in a single fenced block.\n\n"
         f"--- current source ---\n{original_code}\n"
     )
@@ -121,7 +120,7 @@ def generate_solutions(problems: List[dict], model: str) -> List[dict]:
         code = extract_code_blocks(response)
         return code, idx
 
-    with ThreadPoolExecutor(max_workers=32) as executor:
+    with ThreadPoolExecutor(max_workers=16) as executor:
         futures = [executor.submit(process_problem, problem, idx)
                    for idx, problem in enumerate(problems)]
         for future in as_completed(futures):
