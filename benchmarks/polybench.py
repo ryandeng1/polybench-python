@@ -46,11 +46,18 @@ import os  # For controlling Linux scheduler
 #
 # NumPy
 import numpy
-# python_papi
-from pypapi import events as papi_events, papi_high
-# inlineasm
-from inlineasm import assemble
 from ctypes import c_ulonglong
+
+try:
+    from pypapi import events as papi_events, papi_high
+except ImportError:
+    papi_events = None
+    papi_high = None
+
+try:
+    from inlineasm import assemble
+except ImportError:
+    assemble = None
 
 #
 # Workarounds
@@ -132,6 +139,12 @@ class PolyBench:
             self.POLYBENCH_CYCLE_ACCURATE_TIMER = options.POLYBENCH_CYCLE_ACCURATE_TIMER
             self.POLYBENCH_LINUX_FIFO_SCHEDULER = options.POLYBENCH_LINUX_FIFO_SCHEDULER
 
+            if self.POLYBENCH_PAPI and (papi_events is None or papi_high is None):
+                raise RuntimeError('PAPI support requires the "python_papi" package to be installed.')
+
+            if self.POLYBENCH_CYCLE_ACCURATE_TIMER and assemble is None:
+                raise RuntimeError('Cycle-accurate timing requires the "inlineasm" package to be installed.')
+
             # Other options (not present in the README file)
             self.POLYBENCH_DUMP_TARGET = options.POLYBENCH_DUMP_TARGET
             self.POLYBENCH_GFLOPS = options.POLYBENCH_GFLOPS
@@ -168,15 +181,17 @@ class PolyBench:
             #
             # Define the inline-assembly function _read_tsc()
             #
-            asm_code = """
-                 bits 64
-                 RDTSC
-                 sal     rdx, 32
-                 mov     eax, eax
-                 or      rax, rdx
-                 ret
-            """
-            self._read_tsc = assemble(asm_code, c_ulonglong)
+            self._read_tsc = None
+            if assemble is not None:
+                asm_code = """
+                     bits 64
+                     RDTSC
+                     sal     rdx, 32
+                     mov     eax, eax
+                     or      rax, rdx
+                     ret
+                """
+                self._read_tsc = assemble(asm_code, c_ulonglong)
         else:
             raise RuntimeError('Abstract classes cannot be instantiated.')
 
@@ -500,6 +515,8 @@ class PolyBench:
 
         self.__papi_counters.clear()
         self.__papi_counters_result.clear()
+        if papi_events is None or papi_high is None:
+            raise RuntimeError('PAPI support requires the "python_papi" package to be installed.')
         self.__papi_available_counters = get_available_counters()
         user_counters = parse_counters_file()
 
