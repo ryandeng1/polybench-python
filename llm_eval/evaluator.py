@@ -51,6 +51,7 @@ def evaluate_kernel(
     benchmark_id: str,
     submission_source: str,
     dataset_size: str = "LARGE",
+    array_implementation: str = "numpy",
     warmups: int = 1,
     runs: int = 5,
     rtol: float = 1e-4,
@@ -58,6 +59,7 @@ def evaluate_kernel(
 ) -> dict:
     result = {
         "benchmark": _canonical_benchmark_id(benchmark_id),
+        "array_implementation": str(array_implementation).lower(),
         "correct": False,
         "status": "error",
         "baseline_median_ms": None,
@@ -70,11 +72,17 @@ def evaluate_kernel(
 
     try:
         normalized_dataset = _normalize_dataset_size(dataset_size)
+        normalized_array_implementation = _normalize_array_implementation(array_implementation)
         _validate_positive_int("warmups", warmups, allow_zero=True)
         _validate_positive_int("runs", runs, allow_zero=False)
 
         target_class, benchmark_spec = _resolve_benchmark(benchmark_id)
-        prototype = _instantiate_benchmark(target_class, benchmark_spec, normalized_dataset)
+        prototype = _instantiate_benchmark(
+            target_class,
+            benchmark_spec,
+            normalized_dataset,
+            normalized_array_implementation,
+        )
         target_signature = _signature_shape(prototype.__class__.kernel)
 
         submission_kernel = _load_submission_kernel(submission_source)
@@ -85,11 +93,17 @@ def evaluate_kernel(
                 f"received {_format_signature(submission_kernel)}."
             )
 
-        baseline_outputs, _ = _execute_once(target_class, benchmark_spec, normalized_dataset)
+        baseline_outputs, _ = _execute_once(
+            target_class,
+            benchmark_spec,
+            normalized_dataset,
+            normalized_array_implementation,
+        )
         candidate_outputs, _ = _execute_once(
             target_class,
             benchmark_spec,
             normalized_dataset,
+            normalized_array_implementation,
             kernel_override=submission_kernel,
         )
 
@@ -108,6 +122,7 @@ def evaluate_kernel(
             target_class,
             benchmark_spec,
             normalized_dataset,
+            normalized_array_implementation,
             warmups=warmups,
             runs=runs,
         )
@@ -115,6 +130,7 @@ def evaluate_kernel(
             target_class,
             benchmark_spec,
             normalized_dataset,
+            normalized_array_implementation,
             warmups=warmups,
             runs=runs,
             kernel_override=submission_kernel,
@@ -147,6 +163,20 @@ def _normalize_dataset_size(dataset_size: str) -> DataSetSize:
     except KeyError as exc:
         valid = ", ".join(size.name for size in DataSetSize)
         raise EvaluationError(f'Invalid dataset size "{dataset_size}". Expected one of: {valid}.') from exc
+
+
+def _normalize_array_implementation(array_implementation: str) -> ArrayImplementation:
+    normalized = str(array_implementation).strip().lower().replace("-", "_")
+    mapping = {
+        "numpy": ArrayImplementation.NUMPY,
+        "list": ArrayImplementation.LIST,
+    }
+    if normalized not in mapping:
+        valid = ", ".join(sorted(mapping))
+        raise EvaluationError(
+            f'Invalid array implementation "{array_implementation}". Expected one of: {valid}.'
+        )
+    return mapping[normalized]
 
 
 def _validate_positive_int(name: str, value: int, allow_zero: bool) -> None:
@@ -195,9 +225,10 @@ def _instantiate_benchmark(
     benchmark_class: type,
     benchmark_spec: PolyBenchSpec,
     dataset_size: DataSetSize,
+    array_implementation: ArrayImplementation,
 ):
     options = PolyBenchOptions()
-    options.POLYBENCH_ARRAY_IMPLEMENTATION = ArrayImplementation.NUMPY
+    options.POLYBENCH_ARRAY_IMPLEMENTATION = array_implementation
     options.POLYBENCH_DATASET_SIZE = dataset_size
     return benchmark_class(options, benchmark_spec)
 
@@ -267,6 +298,7 @@ def _load_submission_kernel(submission_source: str):
         module = importlib.util.module_from_spec(spec)
         module.__dict__.setdefault("np", np)
         module.__dict__.setdefault("numpy", np)
+        module.__dict__.setdefault("ndarray", np.ndarray)
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
 
@@ -288,9 +320,15 @@ def _execute_once(
     benchmark_class: type,
     benchmark_spec: PolyBenchSpec,
     dataset_size: DataSetSize,
+    array_implementation: ArrayImplementation,
     kernel_override=None,
 ) -> tuple[list[tuple[str, object]], int]:
-    instance = _instantiate_benchmark(benchmark_class, benchmark_spec, dataset_size)
+    instance = _instantiate_benchmark(
+        benchmark_class,
+        benchmark_spec,
+        dataset_size,
+        array_implementation,
+    )
     if kernel_override is not None:
         instance.kernel = types.MethodType(kernel_override, instance)
 
@@ -313,6 +351,7 @@ def _collect_samples(
     benchmark_class: type,
     benchmark_spec: PolyBenchSpec,
     dataset_size: DataSetSize,
+    array_implementation: ArrayImplementation,
     warmups: int,
     runs: int,
     kernel_override=None,
@@ -322,6 +361,7 @@ def _collect_samples(
             benchmark_class,
             benchmark_spec,
             dataset_size,
+            array_implementation,
             kernel_override=kernel_override,
         )
 
@@ -331,6 +371,7 @@ def _collect_samples(
             benchmark_class,
             benchmark_spec,
             dataset_size,
+            array_implementation,
             kernel_override=kernel_override,
         )
         samples.append(elapsed_ns)
@@ -387,6 +428,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to a Python source file containing the submission module. If omitted, stdin is used.",
     )
     parser.add_argument("--dataset-size", default="LARGE", help="Dataset size to evaluate.")
+    parser.add_argument(
+        "--array-implementation",
+        default="numpy",
+        choices=["numpy", "list"],
+        help="Benchmark array implementation to evaluate against.",
+    )
     parser.add_argument("--warmups", type=int, default=1, help="Number of untimed warmup runs.")
     parser.add_argument("--runs", type=int, default=5, help="Number of timed runs.")
     parser.add_argument("--rtol", type=float, default=1e-4, help="Relative tolerance for correctness checks.")
@@ -403,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         benchmark_id=args.benchmark,
         submission_source=submission_source,
         dataset_size=args.dataset_size,
+        array_implementation=args.array_implementation,
         warmups=args.warmups,
         runs=args.runs,
         rtol=args.rtol,

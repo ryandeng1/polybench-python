@@ -34,7 +34,7 @@ def __build_module_list__() -> (set, set):
 
     # For some reason pkgutil.walk_packages() does not recurse from the "benchmarks" package. Use the parent directory
     # to make it work as expected and filter out the results to include only the packages from the "benchmarks" package.
-    from_path = [Path(__path__[0]).parent]
+    from_path = [str(Path(__path__[0]).parent)]
 
     # See: https://docs.python.org/3/library/pkgutil.html#pkgutil.ModuleInfo
     # See: https://docs.python.org/3/library/pkgutil.html#pkgutil.walk_packages

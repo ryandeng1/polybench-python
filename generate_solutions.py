@@ -67,7 +67,8 @@ def build_code_opt_prompt(original_code: str) -> str:
 
     return (
         f"You are an expert python performance engineer.\n\n"
-        f"Python version: 3.10, Numpy version 1.26.4\n"
+        # f"Python version: 3.10, Numpy version 1.26.4\n"
+        f"Python version: 3.10"
         f"Task: Optimize the provided function for speed while preserving exact behavior and I/O.\n"
         f"- Do not change the function signature expected by the harness.\n"
         f"- Provide a full replacement for the function.\n"
